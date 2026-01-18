@@ -1,0 +1,33 @@
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=sqlite:////data/mikrosms.db
+      - SECRET_KEY=${SECRET_KEY:-changeme-production-key}
+    volumes:
+      - mikrosms_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build: ./frontend
+    ports:
+      - "5174:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mikrosms_data:
