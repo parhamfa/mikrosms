@@ -23,6 +23,14 @@ class DecodedSMS:
     concat_seq: int = 1  # This part's sequence number
 
 
+def sanitize_unicode(text: str) -> str:
+    """Remove invalid Unicode characters (surrogates) that can't be encoded to UTF-8."""
+    if not text:
+        return ""
+    # Remove surrogate characters (U+D800 to U+DFFF) that cause 'surrogates not allowed' errors
+    return "".join(c for c in text if not (0xD800 <= ord(c) <= 0xDFFF))
+
+
 def decode_ucs2_hex(hex_string: str) -> str:
     """Decode UCS-2 hex string to Unicode text."""
     if not hex_string:
@@ -33,8 +41,8 @@ def decode_ucs2_hex(hex_string: str) -> str:
         if i + 4 <= len(hex_string):
             try:
                 code = int(hex_string[i:i+4], 16)
-                # Skip null characters and control characters
-                if code > 0 and code != 0xFEFF:  # Skip BOM
+                # Skip null, BOM, and surrogate characters
+                if code > 0 and code != 0xFEFF and not (0xD800 <= code <= 0xDFFF):
                     chars.append(chr(code))
             except ValueError:
                 pass
@@ -248,6 +256,9 @@ def decode_sms_deliver_pdu(pdu: str) -> Optional[DecodedSMS]:
         else:
             body = decode_gsm7_packed(ud_hex, udl)
             encoding = "gsm7"
+        
+        # Sanitize to remove any invalid Unicode characters
+        body = sanitize_unicode(body)
         
         return DecodedSMS(
             index=0,
