@@ -21,7 +21,7 @@ MikroTik's web UI displays Persian/Arabic SMS as `???????` due to encoding issue
 ### Docker (Recommended)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/mikrosms.git
+git clone https://github.com/parhamfa/mikrosms.git
 cd mikrosms
 cp env.example .env
 # Edit .env and set a strong SECRET_KEY
