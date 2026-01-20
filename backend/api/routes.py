@@ -368,31 +368,67 @@ def mark_read(message_id: int, db: Session = Depends(get_db), current_user: User
 
 
 @router.delete("/inbox/{message_id}")
-def delete_message(message_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_message(message_id: int, delete_router: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     msg = db.query(Message).filter(Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
     
-    # Also try to delete from router if we have modem index
-    if msg.modem_index:
+    # Also try to delete from router if requested and we have modem index
+    if delete_router and msg.modem_index:
         try:
             r = db.query(Router).filter(Router.id == msg.router_id).first()
             if r:
                 client = make_client(r)
+                # Use REST API deletion (RouterOS inbox)
+                print(f"[DELETE] Attempting to delete SMS .id={msg.modem_index} from RouterOS inbox")
                 client.delete_sms(msg.modem_index, r.lte_interface)
-        except Exception:
-            pass  # Still delete locally
+                print(f"[DELETE] Successfully deleted SMS .id={msg.modem_index}")
+        except Exception as e:
+            # Log the error for debugging but continue with local delete
+            print(f"[DELETE] Failed to delete SMS from router: {e}")
     
     db.delete(msg)
     db.commit()
     return {"ok": True}
 
 
-# --- Sync & Send ---
+class EmptyRequest(BaseModel):
+    delete_router: bool = False
+
+
+@router.post("/inbox/empty")
+def empty_inbox_action(req: EmptyRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Clear all messages from DB, optionally delete from router."""
+    rid = get_active_router_id(db)
+    if not rid:
+        raise HTTPException(status_code=400, detail="No active router")
+    
+    # 1. Delete all local messages for this router
+    db.query(Message).filter(Message.router_id == rid).delete()
+    db.commit()
+    
+    # 2. Optionally delete from router
+    if req.delete_router:
+        r = db.query(Router).filter(Router.id == rid).first()
+        if not r:
+            return {"ok": True, "cleared": True, "router_deleted": False}
+            
+        try:
+            client = make_client(r)
+            client.delete_all_sms(r.lte_interface)
+            return {"ok": True, "cleared": True, "router_deleted": True}
+        except Exception as e:
+            # If router deletion fails, we still return success for local clear
+            # but maybe indicate partial success if needed. For now, just OK.
+            print(f"Failed to delete all SMS from router: {e}")
+            pass
+
+    return {"ok": True, "cleared": True}
+
 
 @router.post("/sync")
 def sync_inbox(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Fetch new messages from router and store in DB."""
+    """Sync messages from router (soft sync - only fetches new messages)."""
     rid = get_active_router_id(db)
     if not rid:
         raise HTTPException(status_code=400, detail="No active router")
@@ -405,32 +441,36 @@ def sync_inbox(db: Session = Depends(get_db), current_user: User = Depends(get_c
         client = make_client(r)
         sms_list = client.get_sms_inbox(r.lte_interface)
         
+        # Get existing modem_index values to avoid duplicates
+        existing_indices = set(
+            m.modem_index for m in db.query(Message).filter(
+                Message.router_id == rid,
+                Message.modem_index != ""
+            ).all()
+        )
+        
         new_count = 0
         for sms in sms_list:
-            # Check if already exists by modem_index
-            existing = db.query(Message).filter(
-                Message.router_id == rid,
-                Message.modem_index == sms.index
-            ).first()
+            # Skip if we already have this message by modem index
+            if sms.index and sms.index in existing_indices:
+                continue
             
-            if not existing:
-                # Parse timestamp
-                try:
-                    ts = datetime.fromisoformat(sms.timestamp.replace("Z", "+00:00"))
-                except Exception:
-                    ts = datetime.utcnow()
-                
-                msg = Message(
-                    router_id=rid,
-                    direction="in",
-                    phone=sms.phone,
-                    body=sms.body,
-                    timestamp=ts,
-                    read=False,
-                    modem_index=sms.index,
-                )
-                db.add(msg)
-                new_count += 1
+            try:
+                ts = datetime.fromisoformat(sms.timestamp.replace("Z", "+00:00"))
+            except Exception:
+                ts = datetime.utcnow()
+            
+            msg = Message(
+                router_id=rid,
+                direction="in",
+                phone=sms.phone,
+                body=sms.body,
+                timestamp=ts,
+                read=False,
+                modem_index=sms.index or "",
+            )
+            db.add(msg)
+            new_count += 1
         
         db.commit()
         return {"ok": True, "new_messages": new_count}
@@ -442,6 +482,8 @@ def sync_inbox(db: Session = Depends(get_db), current_user: User = Depends(get_c
 @router.post("/resync")
 def resync_inbox(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Clear all cached messages and fetch fresh from router."""
+    # This endpoint can remain as 'Full Reload' functionality if needed,
+    # or be deprecated. We'll keep it for now as a utility.
     rid = get_active_router_id(db)
     if not rid:
         raise HTTPException(status_code=400, detail="No active router")

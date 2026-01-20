@@ -148,16 +148,19 @@ export async function markRead(id: number): Promise<void> {
     return fetchJson(`/api/inbox/${id}/read`, { method: "POST" });
 }
 
-export async function deleteMessage(id: number): Promise<void> {
-    return fetchJson(`/api/inbox/${id}`, { method: "DELETE" });
+export async function deleteMessage(id: number, deleteRouter: boolean = false): Promise<void> {
+    return fetchJson(`/api/inbox/${id}?delete_router=${deleteRouter}`, { method: "DELETE" });
 }
 
 export async function syncInbox(): Promise<{ ok: boolean; new_messages: number }> {
     return fetchJson("/api/sync", { method: "POST" });
 }
 
-export async function emptyInbox(): Promise<{ ok: boolean; new_messages: number }> {
-    return fetchJson("/api/resync", { method: "POST" });
+export async function emptyInbox(deleteRouter: boolean = false): Promise<{ ok: boolean; cleared: boolean }> {
+    return fetchJson("/api/inbox/empty", {
+        method: "POST",
+        body: JSON.stringify({ delete_router: deleteRouter }),
+    });
 }
 
 export async function sendSms(phone: string, message: string): Promise<{ ok: boolean; message_id: number }> {

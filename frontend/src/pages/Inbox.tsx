@@ -98,8 +98,14 @@ export default function Inbox() {
 
     const [emptying, setEmptying] = React.useState(false);
     const [showEmptyConfirm, setShowEmptyConfirm] = React.useState(false);
+    const [deleteRouterEmpty, setDeleteRouterEmpty] = React.useState(false);
+
+    const [showSingleDeleteConfirm, setShowSingleDeleteConfirm] = React.useState(false);
+    const [deleteRouterSingle, setDeleteRouterSingle] = React.useState(false);
+    const [messageToDelete, setMessageToDelete] = React.useState<number | null>(null);
 
     const handleEmptyClick = () => {
+        setDeleteRouterEmpty(false);
         setShowEmptyConfirm(true);
     };
 
@@ -108,13 +114,31 @@ export default function Inbox() {
         setEmptying(true);
         setError("");
         try {
-            await emptyInbox();
+            await emptyInbox(deleteRouterEmpty);
             await loadMessages();
             setSelectedId(null);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Empty failed");
         } finally {
             setEmptying(false);
+        }
+    };
+
+    const handleSingleDeleteClick = () => {
+        setDeleteRouterSingle(false);
+        setMessageToDelete(selectedMessage?.id || null);
+        setShowSingleDeleteConfirm(true);
+    };
+
+    const handleSingleDeleteConfirm = async () => {
+        if (!messageToDelete) return;
+        setShowSingleDeleteConfirm(false);
+        try {
+            await deleteMessage(messageToDelete, deleteRouterSingle);
+            setMessages((prev) => prev.filter((m) => m.id !== messageToDelete));
+            if (selectedId === messageToDelete) setSelectedId(null);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Delete failed");
         }
     };
 
@@ -125,16 +149,7 @@ export default function Inbox() {
         } catch { }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!confirm("Delete this message?")) return;
-        try {
-            await deleteMessage(id);
-            setMessages((prev) => prev.filter((m) => m.id !== id));
-            if (selectedId === id) setSelectedId(null);
-        } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : "Delete failed");
-        }
-    };
+
 
     const selectedMessage = messages.find((m) => m.id === selectedId);
 
@@ -285,7 +300,7 @@ export default function Inbox() {
                                                 Reply
                                             </button>
                                             <button
-                                                onClick={() => handleDelete(selectedMessage.id)}
+                                                onClick={handleSingleDeleteClick}
                                                 className="rounded-full bg-rose-50 text-rose-700 px-3 py-1.5 text-sm shadow hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-300"
                                             >
                                                 Delete
@@ -323,9 +338,32 @@ export default function Inbox() {
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
                             Clear Inbox?
                         </h3>
-                        <p className="text-gray-600 dark:text-gray-400 mb-6">
-                            This will remove all messages from the local list and re-fetch everything from the router. This action cannot be undone.
-                        </p>
+                        {/* Body Text */}
+                        <div className="text-gray-600 dark:text-gray-400 mb-6 text-sm space-y-3">
+                            <p>
+                                Always clears messages from the local list.
+                            </p>
+
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+                                <input
+                                    type="checkbox"
+                                    checked={deleteRouterEmpty}
+                                    onChange={(e) => setDeleteRouterEmpty(e.target.checked)}
+                                    className="w-4 h-4 text-rose-600 rounded border-gray-300 focus:ring-rose-500"
+                                />
+                                <span className="font-medium text-gray-900 dark:text-gray-200">
+                                    Also delete from router
+                                </span>
+                            </label>
+
+                            {deleteRouterEmpty && (
+                                <p className="text-rose-600 dark:text-rose-400 text-xs flex items-center gap-1">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                    Warning: This will permanently delete messages from the modem SIM card.
+                                </p>
+                            )}
+                        </div>
+
                         <div className="flex justify-end gap-3">
                             <button
                                 onClick={() => setShowEmptyConfirm(false)}
@@ -337,7 +375,53 @@ export default function Inbox() {
                                 onClick={handleEmptyConfirm}
                                 className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-lg shadow-rose-500/20"
                             >
-                                Clear All
+                                {deleteRouterEmpty ? "Delete Everything" : "Clear Local List"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Single Delete Confirmation Modal */}
+            {showSingleDeleteConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-6 ring-1 ring-gray-200 dark:ring-gray-800 animate-in fade-in zoom-in duration-200">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                            Delete Message?
+                        </h3>
+                        <div className="text-gray-600 dark:text-gray-400 mb-6 text-sm space-y-3">
+                            <p>
+                                Are you sure you want to delete this message?
+                            </p>
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+                                <input
+                                    type="checkbox"
+                                    checked={deleteRouterSingle}
+                                    onChange={(e) => setDeleteRouterSingle(e.target.checked)}
+                                    className="w-4 h-4 text-rose-600 rounded border-gray-300 focus:ring-rose-500"
+                                />
+                                <span className="font-medium text-gray-900 dark:text-gray-200">
+                                    Also delete from router
+                                </span>
+                            </label>
+                            {deleteRouterSingle && (
+                                <p className="text-rose-600 dark:text-rose-400 text-xs flex items-center gap-1">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                    Warning: This will permanently delete the message from the modem.
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowSingleDeleteConfirm(false)}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSingleDeleteConfirm}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-lg shadow-rose-500/20"
+                            >
+                                Delete
                             </button>
                         </div>
                     </div>

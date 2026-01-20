@@ -110,48 +110,79 @@ class MikroTikRestClient(MikroTikClient):
 
     def get_sms_inbox(self, port: str = "lte1") -> List[SMSMessage]:
         """
-        Retrieve SMS messages from the modem using AT commands in PDU mode.
-        This properly decodes Persian/Arabic/Unicode text.
+        Retrieve SMS messages from RouterOS inbox.
+        RouterOS maintains its own inbox separate from the modem's SIM storage.
+        We use the REST API and decode PDU for proper Unicode support,
+        AND reassemble concatenated (multi-part) messages.
         """
-        from .sms_handler import parse_cmgl_response
+        from .sms_handler import decode_sms_deliver_pdu, sanitize_unicode, reassemble_concatenated, DecodedSMS
         import logging
         logger = logging.getLogger("mikrosms.sms")
         
         try:
-            # First, set modem to PDU mode
-            mode_resp = self.run_at_command("AT+CMGF=0", port)
-            logger.info(f"AT+CMGF=0 response: {mode_resp[:200] if mode_resp else 'empty'}")
+            # Use REST API to get messages from RouterOS inbox
+            data = self._get("/tool/sms/inbox")
+            decoded_list: List[DecodedSMS] = []
             
-            # List all messages (4 = all messages)
-            # 0 = unread, 1 = read, 2 = unsent, 3 = sent, 4 = all
-            response = self.run_at_command("AT+CMGL=4", port)
-            logger.info(f"AT+CMGL=4 response length: {len(response) if response else 0}")
-            logger.debug(f"AT+CMGL=4 full response: {response}")
+            for row in data:
+                msg_id = row.get(".id", "")
+                phone = row.get("phone", "")
+                timestamp = row.get("timestamp", "")
+                pdu = row.get("pdu", "")
+                body = row.get("message", "")
+                msg_type = row.get("type", "received")
+                
+                decoded_object = None
+                
+                # 1. Try to decode PDU for proper Unicode and concat info
+                if pdu:
+                    try:
+                        # Clean up PDU (remove whitespace/newlines)
+                        clean_pdu = pdu.replace(" ", "").replace("\n", "").replace("\r", "")
+                        decoded = decode_sms_deliver_pdu(clean_pdu)
+                        if decoded:
+                            decoded.index = msg_id  # Set the correct RouterOS ID
+                            # If decode succeed but body is empty/weird, maybe fallback? 
+                            # Usually PDU decode is authoritative.
+                            decoded_object = decoded
+                    except Exception as e:
+                        logger.warning(f"PDU decode failed for msg {msg_id}: {e}")
+                
+                # 2. Fallback if PDU missing or failed
+                if not decoded_object:
+                    decoded_object = DecodedSMS(
+                        index=msg_id,
+                        phone=phone,
+                        timestamp=timestamp,
+                        body=body,
+                        encoding="unknown",
+                        concat_ref=0,
+                        concat_total=1,
+                        concat_seq=1
+                    )
+                
+                decoded_list.append(decoded_object)
             
-            # Parse PDU response
-            decoded_messages = parse_cmgl_response(response)
-            logger.info(f"Decoded {len(decoded_messages)} messages from PDU")
+            # 3. Reassemble concatenated messages
+            reassembled = reassemble_concatenated(decoded_list)
             
+            # 4. Convert to SMSMessage objects
             messages = []
-            for dm in decoded_messages:
+            for dm in reassembled:
                 msg = SMSMessage(
-                    index=str(dm.index),
+                    index=dm.index,
                     phone=dm.phone,
                     timestamp=dm.timestamp,
                     body=dm.body,
-                    type="received",
+                    type="received", # We assume received for inbox
                 )
                 messages.append(msg)
             
+            logger.info(f"Retrieved {len(messages)} messages (merged from {len(data)} raw) from RouterOS inbox")
             return messages
         except Exception as e:
-            import logging
-            logging.getLogger("mikrosms.sms").warning(f"AT command failed: {e}, falling back to REST API")
-            # Fallback to REST API if AT commands fail
-            try:
-                return self._get_sms_inbox_rest(port)
-            except Exception:
-                raise RuntimeError(f"Failed to get SMS inbox: {e}")
+            logger.error(f"Failed to get SMS inbox: {e}")
+            raise RuntimeError(f"Failed to get SMS inbox: {e}")
 
     def _get_sms_inbox_rest(self, port: str = "lte1") -> List[SMSMessage]:
         """Fallback: Use REST API (may return garbled Unicode)."""
@@ -186,12 +217,56 @@ class MikroTikRestClient(MikroTikClient):
             raise RuntimeError(f"Failed to send SMS: {e}")
 
     def delete_sms(self, index: str, port: str = "lte1") -> bool:
-        """Delete an SMS message by its index."""
+        """Delete an SMS message by its index (REST API)."""
         try:
             self._post("/tool/sms/inbox/remove", {"numbers": index})
             return True
         except Exception as e:
             raise RuntimeError(f"Failed to delete SMS: {e}")
+
+    def delete_sms_at(self, index: str, port: str = "lte1") -> bool:
+        """
+        Delete an SMS message by its index using AT commands (PDU mode).
+        AT+CMGD=<index>
+        """
+        try:
+            # AT+CMGD=index
+            self.run_at_command(f"AT+CMGD={index}", port)
+            return True
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete SMS (AT): {e}")
+
+    def delete_all_sms(self, port: str = "lte1") -> bool:
+        """
+        Delete ALL SMS messages from RouterOS inbox using REST API.
+        Gets all message IDs and deletes them.
+        """
+        try:
+            # Get all messages to find their IDs
+            data = self._get("/tool/sms/inbox")
+            for row in data:
+                msg_id = row.get(".id", "")
+                if msg_id:
+                    try:
+                        self._post("/tool/sms/inbox/remove", {"numbers": msg_id})
+                    except Exception:
+                        pass  # Continue even if one fails
+            return True
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete all SMS: {e}")
+
+    def delete_all_sms_at(self, port: str = "lte1") -> bool:
+        """
+        Delete ALL SMS messages using AT commands (SIM card only).
+        AT+CMGD=1,4 (Delete all messages)
+        Note: This only affects SIM storage, not RouterOS inbox.
+        """
+        try:
+            # AT+CMGD=1,4 -> 1 is dummy index, 4 is flag for "delete all"
+            self.run_at_command("AT+CMGD=1,4", port)
+            return True
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete all SMS (AT): {e}")
 
     def run_at_command(self, command: str, port: str = "lte1") -> str:
         """

@@ -12,7 +12,7 @@ from datetime import datetime
 @dataclass
 class DecodedSMS:
     """Represents a decoded SMS message."""
-    index: int
+    index: str
     phone: str
     timestamp: str
     body: str

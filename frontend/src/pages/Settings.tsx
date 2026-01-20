@@ -9,8 +9,8 @@ import {
     testRouter,
     getActiveRouter,
     setActiveRouter,
-    getSettings,
-    putSettings,
+
+
     listUsers,
     createUser,
     deleteUser,
@@ -23,7 +23,7 @@ export default function Settings() {
 
     const [routers, setRouters] = React.useState<Router[]>([]);
     const [activeRouterId, setActiveRouterId] = React.useState<number | null>(null);
-    const [settings, setSettings] = React.useState<Record<string, string>>({});
+
     const [users, setUsers] = React.useState<User[]>([]);
 
     const [routerModal, setRouterModal] = React.useState(false);
@@ -49,15 +49,13 @@ export default function Settings() {
 
     const loadData = React.useCallback(async () => {
         try {
-            const [rs, ar, s, us] = await Promise.all([
+            const [rs, ar, us] = await Promise.all([
                 listRouters(),
                 getActiveRouter(),
-                getSettings(),
                 listUsers(),
             ]);
             setRouters(rs);
             setActiveRouterId(ar.router_id);
-            setSettings(s);
             setUsers(us);
         } catch { }
     }, []);
