@@ -251,10 +251,13 @@ def decode_sms_deliver_pdu(pdu: str) -> Optional[DecodedSMS]:
                 udl -= udh_septets
         
         if is_ucs2:
-            body = decode_ucs2_hex(ud_hex[:udl * 2])
+            # For UCS-2, decode all remaining user data after UDH stripping
+            # UDL was already adjusted above when UDH was stripped
+            body = decode_ucs2_hex(ud_hex)
             encoding = "ucs2"
         else:
-            body = decode_gsm7_packed(ud_hex, udl)
+            # For GSM7, udl is in septets
+            body = decode_gsm7_packed(ud_hex, udl if udl > 0 else 0)
             encoding = "gsm7"
         
         # Sanitize to remove any invalid Unicode characters
