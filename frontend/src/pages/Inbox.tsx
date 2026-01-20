@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listInbox, syncInbox, markRead, deleteMessage, getLteInfo, type Message, type LTEInfo } from "../api";
+import { listInbox, syncInbox, emptyInbox, markRead, deleteMessage, getLteInfo, type Message, type LTEInfo } from "../api";
 
 function Card({ className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) {
     const base = "rounded-2xl ring-1 ring-gray-200 bg-white shadow-sm hover:shadow-md transition dark:ring-gray-800 dark:bg-gray-900";
@@ -21,6 +21,28 @@ export default function Inbox() {
     const [syncing, setSyncing] = React.useState(false);
     const [error, setError] = React.useState("");
     const [selectedId, setSelectedId] = React.useState<number | null>(null);
+
+    // Auto-sync settings (saved to localStorage)
+    const [autoSyncInterval, setAutoSyncInterval] = React.useState<number>(() => {
+        try {
+            const saved = localStorage.getItem("mikrosms.autoSyncInterval");
+            return saved ? parseInt(saved, 10) : 0; // 0 = disabled
+        } catch { return 0; }
+    });
+    const [autoSyncUnit, setAutoSyncUnit] = React.useState<"sec" | "min">(() => {
+        try {
+            const saved = localStorage.getItem("mikrosms.autoSyncUnit");
+            return saved === "min" ? "min" : "sec";
+        } catch { return "sec"; }
+    });
+
+    // Save auto-sync settings to localStorage
+    React.useEffect(() => {
+        try {
+            localStorage.setItem("mikrosms.autoSyncInterval", String(autoSyncInterval));
+            localStorage.setItem("mikrosms.autoSyncUnit", autoSyncUnit);
+        } catch { }
+    }, [autoSyncInterval, autoSyncUnit]);
 
     const loadMessages = React.useCallback(async () => {
         try {
@@ -47,6 +69,20 @@ export default function Inbox() {
         loadLteInfo();
     }, [loadMessages, loadLteInfo]);
 
+    // Auto-sync timer
+    React.useEffect(() => {
+        if (autoSyncInterval <= 0) return;
+        const ms = autoSyncInterval * (autoSyncUnit === "min" ? 60000 : 1000);
+        const timer = setInterval(async () => {
+            try {
+                await syncInbox();
+                const msgs = await listInbox(100);
+                setMessages(msgs);
+            } catch { }
+        }, ms);
+        return () => clearInterval(timer);
+    }, [autoSyncInterval, autoSyncUnit]);
+
     const handleSync = async () => {
         setSyncing(true);
         setError("");
@@ -57,6 +93,23 @@ export default function Inbox() {
             setError(err instanceof Error ? err.message : "Sync failed");
         } finally {
             setSyncing(false);
+        }
+    };
+
+    const [emptying, setEmptying] = React.useState(false);
+
+    const handleEmpty = async () => {
+        if (!confirm("Clear all messages and re-fetch from router?")) return;
+        setEmptying(true);
+        setError("");
+        try {
+            await emptyInbox();
+            await loadMessages();
+            setSelectedId(null);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Empty failed");
+        } finally {
+            setEmptying(false);
         }
     };
 
@@ -108,9 +161,35 @@ export default function Inbox() {
                                 {lteInfo.signal_strength > -999 && <span>{lteInfo.signal_strength} dBm</span>}
                             </div>
                         )}
+                        {/* Auto-sync control */}
+                        <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                            <span>Auto</span>
+                            <input
+                                type="number"
+                                min="0"
+                                value={autoSyncInterval}
+                                onChange={(e) => setAutoSyncInterval(Math.max(0, parseInt(e.target.value) || 0))}
+                                className="w-12 rounded-full border border-gray-300 bg-white text-gray-900 px-2 py-1 text-xs focus:ring-1 focus:ring-gray-400 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                            />
+                            <select
+                                value={autoSyncUnit}
+                                onChange={(e) => setAutoSyncUnit(e.target.value as "sec" | "min")}
+                                className="rounded-full border border-gray-300 bg-white text-gray-900 px-2 py-1 text-xs focus:ring-1 focus:ring-gray-400 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                            >
+                                <option value="sec">sec</option>
+                                <option value="min">min</option>
+                            </select>
+                        </div>
+                        <button
+                            onClick={handleEmpty}
+                            disabled={emptying || syncing}
+                            className="rounded-full bg-rose-50 text-rose-700 px-3 py-1.5 text-sm shadow hover:bg-rose-100 disabled:opacity-50 dark:bg-rose-900/20 dark:text-rose-300 dark:hover:bg-rose-900/40"
+                        >
+                            {emptying ? "Clearing..." : "Empty"}
+                        </button>
                         <button
                             onClick={handleSync}
-                            disabled={syncing}
+                            disabled={syncing || emptying}
                             className="rounded-full bg-gray-100 text-gray-800 px-3 py-1.5 text-sm shadow hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                         >
                             {syncing ? "Syncing..." : "Sync"}
