@@ -114,17 +114,23 @@ class MikroTikRestClient(MikroTikClient):
         This properly decodes Persian/Arabic/Unicode text.
         """
         from .sms_handler import parse_cmgl_response
+        import logging
+        logger = logging.getLogger("mikrosms.sms")
         
         try:
             # First, set modem to PDU mode
-            self.run_at_command("AT+CMGF=0", port)
+            mode_resp = self.run_at_command("AT+CMGF=0", port)
+            logger.info(f"AT+CMGF=0 response: {mode_resp[:200] if mode_resp else 'empty'}")
             
             # List all messages (4 = all messages)
             # 0 = unread, 1 = read, 2 = unsent, 3 = sent, 4 = all
             response = self.run_at_command("AT+CMGL=4", port)
+            logger.info(f"AT+CMGL=4 response length: {len(response) if response else 0}")
+            logger.debug(f"AT+CMGL=4 full response: {response}")
             
             # Parse PDU response
             decoded_messages = parse_cmgl_response(response)
+            logger.info(f"Decoded {len(decoded_messages)} messages from PDU")
             
             messages = []
             for dm in decoded_messages:
@@ -139,6 +145,8 @@ class MikroTikRestClient(MikroTikClient):
             
             return messages
         except Exception as e:
+            import logging
+            logging.getLogger("mikrosms.sms").warning(f"AT command failed: {e}, falling back to REST API")
             # Fallback to REST API if AT commands fail
             try:
                 return self._get_sms_inbox_rest(port)

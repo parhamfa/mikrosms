@@ -153,7 +153,7 @@ export async function deleteMessage(id: number): Promise<void> {
 }
 
 export async function syncInbox(): Promise<{ ok: boolean; new_messages: number }> {
-    return fetchJson("/api/sync", { method: "POST" });
+    return fetchJson("/api/resync", { method: "POST" });
 }
 
 export async function sendSms(phone: string, message: string): Promise<{ ok: boolean; message_id: number }> {

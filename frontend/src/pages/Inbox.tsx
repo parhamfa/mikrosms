@@ -51,10 +51,8 @@ export default function Inbox() {
         setSyncing(true);
         setError("");
         try {
-            const result = await syncInbox();
-            if (result.new_messages > 0) {
-                await loadMessages();
-            }
+            await syncInbox();
+            await loadMessages();
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Sync failed");
         } finally {
