@@ -332,6 +332,11 @@ def reassemble_concatenated(messages: List[DecodedSMS]) -> List[DecodedSMS]:
         # Combine bodies
         combined_body = "".join(p.body for p in parts)
         
+        # Check if all parts are present
+        expected_total = parts[0].concat_total
+        if len(parts) < expected_total:
+            combined_body += f"\n\n[⚠️ Message incomplete: {len(parts)}/{expected_total} parts received]"
+        
         # Use first part's metadata
         first = parts[0]
         reassembled.append(DecodedSMS(
