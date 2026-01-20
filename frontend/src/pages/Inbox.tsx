@@ -97,9 +97,14 @@ export default function Inbox() {
     };
 
     const [emptying, setEmptying] = React.useState(false);
+    const [showEmptyConfirm, setShowEmptyConfirm] = React.useState(false);
 
-    const handleEmpty = async () => {
-        if (!confirm("Clear all messages and re-fetch from router?")) return;
+    const handleEmptyClick = () => {
+        setShowEmptyConfirm(true);
+    };
+
+    const handleEmptyConfirm = async () => {
+        setShowEmptyConfirm(false);
         setEmptying(true);
         setError("");
         try {
@@ -181,7 +186,7 @@ export default function Inbox() {
                             </select>
                         </div>
                         <button
-                            onClick={handleEmpty}
+                            onClick={handleEmptyClick}
                             disabled={emptying || syncing}
                             className="rounded-full bg-rose-50 text-rose-700 px-3 py-1.5 text-sm shadow hover:bg-rose-100 disabled:opacity-50 dark:bg-rose-900/20 dark:text-rose-300 dark:hover:bg-rose-900/40"
                         >
@@ -311,6 +316,33 @@ export default function Inbox() {
                     <path d="M12 5v14M5 12h14" />
                 </svg>
             </Link>
+            {/* Confirmation Modal */}
+            {showEmptyConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-6 ring-1 ring-gray-200 dark:ring-gray-800 animate-in fade-in zoom-in duration-200">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                            Clear Inbox?
+                        </h3>
+                        <p className="text-gray-600 dark:text-gray-400 mb-6">
+                            This will remove all messages from the local list and re-fetch everything from the router. This action cannot be undone.
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowEmptyConfirm(false)}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleEmptyConfirm}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-lg shadow-rose-500/20"
+                            >
+                                Clear All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
